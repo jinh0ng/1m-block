@@ -13,7 +13,7 @@
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
-char *host;
+// char *host;
 std::set<std::string> sites;
 u_int32_t verdict;
 
@@ -71,13 +71,14 @@ static uint32_t print_pkt(struct nfq_data *tb)
     if (ifi)
         printf("physoutdev=%u ", ifi);
 
-    if (nfq_get_uid(tb, &uid))
-        printf("uid=%u ", uid);
+    // if (nfq_get_uid(tb, &uid))
+    //     printf("uid=%u ", uid);
 
-    if (nfq_get_gid(tb, &gid))
-        printf("gid=%u ", gid);
+    // if (nfq_get_gid(tb, &gid))
+    //     printf("gid=%u ", gid);
 
-    ret = nfq_get_secctx(tb, &secdata);
+    // ret = nfq_get_secctx(tb, &secdata);
+
     if (ret > 0)
         printf("secctx=\"%.*s\" ", ret, secdata);
 
@@ -85,49 +86,52 @@ static uint32_t print_pkt(struct nfq_data *tb)
     if (ret >= 0)
     {
         u_int32_t iphdr_len = data[0] & 0x0f;
-        iphdr_len = iphdr_len * 4;
+        iphdr_len *= 4;
 
         u_int32_t tcphdr_len = data[iphdr_len + 12] & 0xf0;
-        tcphdr_len = tcphdr_len >> 4;
-        tcphdr_len = tcphdr_len * 4;
+        tcphdr_len >>= 4;
+        tcphdr_len *= 4;
 
         u_int32_t http_len = ret - iphdr_len - tcphdr_len;
-
         unsigned char *http_ptr = data + iphdr_len + tcphdr_len;
+
         if (http_len > 0)
         {
-            char *host_ptr = NULL;
-            unsigned char *p = http_ptr;
-            unsigned char *end = http_ptr + http_len;
             const char header[] = "Host: ";
             size_t header_len = sizeof(header) - 1;
+            unsigned char *p = http_ptr;
+            unsigned char *end = http_ptr + http_len;
+            std::string hostname;
 
-            /* payload 내에서 "Host: " 위치 찾기 */
+            // 1) "Host: " 위치 찾기
             for (; p + header_len <= end; ++p)
             {
                 if (memcmp(p, header, header_len) == 0)
                 {
-                    host_ptr = (char *)p + header_len; // "Host: " 바로 뒤로 이동
+                    unsigned char *q = p + header_len;
+                    // 2) CR or LF or ':' 전까지 읽어서 hostname 구성
+                    while (q < end && *q != '\r' && *q != '\n' && *q != ':')
+                    {
+                        hostname.push_back(*q++);
+                    }
                     break;
                 }
             }
-            if (host_ptr)
+
+            if (!hostname.empty())
             {
-                // hostname과 비교
-                if (strncmp(host_ptr, host, strlen(host)) == 0)
+                // 3) sites 셋에서 검색
+                if (sites.find(hostname) != sites.end())
                 {
-                    // 패킷 차단
                     verdict = NF_DROP;
-                    printf("BLOCKED\n");
+                    printf("BLOCKED (%s)\n", hostname.c_str());
                 }
                 else
                 {
-                    // 패킷 허용
                     verdict = NF_ACCEPT;
-                    printf("ACCEPTED\n");
+                    printf("ACCEPTED (%s)\n", hostname.c_str());
                 }
             }
-            printf("payload_len=%d\n", ret);
         }
     }
     fputc('\n', stdout);
@@ -156,14 +160,13 @@ int main(int argc, char **argv)
     uint32_t queue = 0;
     char buf[4096] __attribute__((aligned));
 
-    host = argv[1];
     if (argc != 2)
     {
         usage();
         exit(1);
     }
 
-    FILE *fp = fopen(host, "r");
+    FILE *fp = fopen(argv[1], "r");
     if (fp == NULL)
     {
         printf("File open error\n");
