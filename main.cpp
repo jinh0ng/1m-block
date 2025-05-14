@@ -10,7 +10,8 @@
 #include <set>
 #include <string>
 #include <time.h>
-
+#include <sys/resource.h>
+#include <chrono>
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
 // char *host;
@@ -112,7 +113,14 @@ static uint32_t print_pkt(struct nfq_data *tb)
                 std::string hostname(host_ptr);
                 printf("parsed hostname: %s\n", hostname.c_str());
 
-                if (!hostname.empty() && sites.find(hostname) != sites.end())
+                // ——— 검색 시간 측정 ———
+                auto t0 = std::chrono::high_resolution_clock::now();
+                bool blocked = (sites.find(hostname) != sites.end());
+                auto t1 = std::chrono::high_resolution_clock::now();
+                auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+
+                // verdict 결정 및 출력
+                if (blocked)
                 {
                     verdict = NF_DROP;
                     printf("BLOCKED (%s)\n", hostname.c_str());
@@ -122,6 +130,7 @@ static uint32_t print_pkt(struct nfq_data *tb)
                     verdict = NF_ACCEPT;
                     printf("ACCEPTED (%s)\n", hostname.c_str());
                 }
+                printf("Lookup Time: %lld µs\n", (long long)us);
             }
             else
             {
@@ -175,7 +184,7 @@ int main(int argc, char **argv)
     time_t start, end;
     time(&start);
 
-    // 3) 한 줄씩 읽어 와서 콤마 뒤 도메인만 추출해 삽입
+    // 한 줄씩 읽어 와서 콤마 뒤 도메인만 추출해 삽입
     while (fgets(line, sizeof(line), fp))
     {
         // '1,google.com\r\n' → comma 가리키게
@@ -190,6 +199,14 @@ int main(int argc, char **argv)
     time(&end);
     printf("Time taken to read file: %lf \n", difftime(end, start));
     fclose(fp);
+
+    // 메모리 사용량 측정 (getrusage)
+
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0)
+    {
+        printf("Max RSS: %ld KB\n", usage.ru_maxrss);
+    }
 
     ///////////////////////////////////////////////
 
