@@ -15,7 +15,7 @@
 
 // char *host;
 std::set<std::string> sites;
-u_int32_t verdict;
+u_int32_t verdict = NF_ACCEPT; // default verdict
 
 void usage()
 {
@@ -79,8 +79,8 @@ static uint32_t print_pkt(struct nfq_data *tb)
 
     // ret = nfq_get_secctx(tb, &secdata);
 
-    if (ret > 0)
-        printf("secctx=\"%.*s\" ", ret, secdata);
+    // if (ret > 0)
+    //     printf("secctx=\"%.*s\" ", ret, secdata);
 
     ret = nfq_get_payload(tb, &data);
     if (ret >= 0)
@@ -97,31 +97,22 @@ static uint32_t print_pkt(struct nfq_data *tb)
 
         if (http_len > 0)
         {
-            const char header[] = "Host: ";
-            size_t header_len = sizeof(header) - 1;
-            unsigned char *p = http_ptr;
-            unsigned char *end = http_ptr + http_len;
-            std::string hostname;
-
-            // 1) "Host: " 위치 찾기
-            for (; p + header_len <= end; ++p)
+            char *host_ptr = strstr((char *)http_ptr, "Host: ");
+            if (host_ptr)
             {
-                if (memcmp(p, header, header_len) == 0)
-                {
-                    unsigned char *q = p + header_len;
-                    // 2) CR or LF or ':' 전까지 읽어서 hostname 구성
-                    while (q < end && *q != '\r' && *q != '\n' && *q != ':')
-                    {
-                        hostname.push_back(*q++);
-                    }
-                    break;
-                }
-            }
+                host_ptr += 6; // "Host: " skip
 
-            if (!hostname.empty())
-            {
-                // 3) sites 셋에서 검색
-                if (sites.find(hostname) != sites.end())
+                // CR/LF 전까지 탐색
+                char *end = host_ptr;
+                while (*end && *end != '\r' && *end != '\n')
+                    ++end;
+                *end = '\0';
+
+                // 파싱된 호스트명으로만 std::string 생성
+                std::string hostname(host_ptr);
+                printf("parsed hostname: %s\n", hostname.c_str());
+
+                if (!hostname.empty() && sites.find(hostname) != sites.end())
                 {
                     verdict = NF_DROP;
                     printf("BLOCKED (%s)\n", hostname.c_str());
@@ -131,6 +122,11 @@ static uint32_t print_pkt(struct nfq_data *tb)
                     verdict = NF_ACCEPT;
                     printf("ACCEPTED (%s)\n", hostname.c_str());
                 }
+            }
+            else
+            {
+                // Host 헤더 자체가 없으면 기본 허용
+                verdict = NF_ACCEPT;
             }
         }
     }
@@ -172,17 +168,24 @@ int main(int argc, char **argv)
         printf("File open error\n");
         exit(1);
     }
+
     char line[256];
     memset(line, 0, sizeof(line));
 
     time_t start, end;
     time(&start);
 
-    while (fscanf(fp, "%s", line) != EOF)
+    // 3) 한 줄씩 읽어 와서 콤마 뒤 도메인만 추출해 삽입
+    while (fgets(line, sizeof(line), fp))
     {
-        std::string site(line);
-        sites.insert(site);
-        memset(line, 0, sizeof(line));
+        // '1,google.com\r\n' → comma 가리키게
+        char *comma = strchr(line, ',');
+        if (!comma)
+            continue;
+        char *domain = comma + 1;
+        // 끝 개행 제거
+        domain[strcspn(domain, "\r\n")] = '\0';
+        sites.insert(std::string(domain));
     }
     time(&end);
     printf("Time taken to read file: %lf \n", difftime(end, start));
