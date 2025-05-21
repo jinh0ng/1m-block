@@ -114,10 +114,10 @@ static uint32_t print_pkt(struct nfq_data *tb)
                 printf("parsed hostname: %s\n", hostname.c_str());
 
                 // ——— 검색 시간 측정 ———
-                auto t0 = std::chrono::high_resolution_clock::now();
+                // auto t0 = std::chrono::high_resolution_clock::now();
                 bool blocked = (sites.find(hostname) != sites.end());
-                auto t1 = std::chrono::high_resolution_clock::now();
-                auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                // auto t1 = std::chrono::high_resolution_clock::now();
+                // auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 
                 // verdict 결정 및 출력
                 if (blocked)
@@ -130,7 +130,7 @@ static uint32_t print_pkt(struct nfq_data *tb)
                     verdict = NF_ACCEPT;
                     printf("ACCEPTED (%s)\n", hostname.c_str());
                 }
-                printf("Lookup Time: %lld µs\n", (long long)us);
+                // printf("Lookup Time: %lld µs\n", (long long)us);
             }
             else
             {
@@ -200,13 +200,8 @@ int main(int argc, char **argv)
     printf("Time taken to read file: %lf \n", difftime(end, start));
     fclose(fp);
 
-    // 메모리 사용량 측정 (getrusage)
-
-    struct rusage usage;
-    if (getrusage(RUSAGE_SELF, &usage) == 0)
-    {
-        printf("Max RSS: %ld KB\n", usage.ru_maxrss);
-    }
+    // 프로세스 PID 출력
+    printf("Process PID: %d\n", getpid());
 
     ///////////////////////////////////////////////
 
